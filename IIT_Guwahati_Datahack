@@ -1,0 +1,62 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+
+# https://github.com/naina123k/Datahack/new/main
+data = pd.read_csv('dataset.csv')
+
+# Handle missing values
+data.fillna(data.median(), inplace=True)
+
+# Encode categorical variables
+categorical_features = ['age_group', 'education', 'race', 'sex', 'income_poverty', 'marital_status', 'rent_or_own', 'employment_status', 'hhs_geo_region', 'census_msa', 'employment_industry', 'employment_occupation']
+numeric_features = [col for col in data.columns if col not in categorical_features + ['respondent_id', 'xyz_vaccine', 'seasonal_vaccine']]
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numeric_features),
+        ('cat', OneHotEncoder(), categorical_features)
+    ])
+
+# Split data
+X = data.drop(columns=['respondent_id', 'xyz_vaccine', 'seasonal_vaccine'])
+y = data[['xyz_vaccine', 'seasonal_vaccine']]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Model pipeline
+pipeline = Pipeline(steps=[
+    ('preprocessor', preprocessor),
+    ('classifier', RandomForestClassifier())
+])
+
+# Hyperparameter tuning
+param_grid = {
+    'classifier__n_estimators': [100, 200],
+    'classifier__max_depth': [10, 20],
+}
+
+grid_search = GridSearchCV(pipeline, param_grid, cv=5, scoring='roc_auc', n_jobs=-1)
+grid_search.fit(X_train, y_train)
+
+# Best model
+best_model = grid_search.best_estimator_
+
+# Evaluate model
+y_pred = best_model.predict_proba(X_test)
+roc_auc = roc_auc_score(y_test, y_pred, average="macro")
+print("ROC AUC Score: ", roc_auc)
+
+# Predict on test set
+y_pred_test = best_model.predict_proba(X_test)
+
+# Create submission file
+submission = pd.DataFrame({
+    'respondent_id': data['respondent_id'],
+    'xyz_vaccine': y_pred_test[:, 0],
+    'seasonal_vaccine': y_pred_test[:, 1]
+})
+submission.to_csv('submission.csv', index=False)
